@@ -502,6 +502,9 @@ static int smb2_usb_get_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CONNECTOR_TYPE:
 		val->intval = chg->connector_type;
 		break;
+	case POWER_SUPPLY_PROP_OTG_FASTROLESWAP:
+		rc = smblib_get_prop_otg_fastroleswap(chg, val);
+		break;
 	case POWER_SUPPLY_PROP_MOISTURE_DETECTED:
 		val->intval = get_client_vote(chg->disable_power_role_switch,
 					      MOISTURE_VOTER);
@@ -575,6 +578,9 @@ static int smb2_usb_set_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_SDP_CURRENT_MAX:
 		rc = smblib_set_prop_sdp_current_max(chg, val);
+		break;
+	case POWER_SUPPLY_PROP_OTG_FASTROLESWAP:
+		rc = smblib_set_prop_otg_fastroleswap(chg, val);
 		break;
 	default:
 		pr_err("set prop %d is not supported\n", psp);
