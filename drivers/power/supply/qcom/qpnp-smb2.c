@@ -1010,6 +1010,7 @@ static enum power_supply_property smb2_batt_props[] = {
 	POWER_SUPPLY_PROP_STEP_CHARGING_ENABLED,
 	POWER_SUPPLY_PROP_SW_JEITA_ENABLED,
 	POWER_SUPPLY_PROP_TAPER_CONTROL,
+	POWER_SUPPLY_PROP_CHARGE_DISABLE,
 	POWER_SUPPLY_PROP_CHARGE_DONE,
 	POWER_SUPPLY_PROP_PARALLEL_DISABLE,
 	POWER_SUPPLY_PROP_SET_SHIP_MODE,
@@ -1104,6 +1105,9 @@ static int smb2_batt_get_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_TECHNOLOGY:
 		val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_DISABLE:
+		val->intval = get_effective_result(chg->chg_disable_votable);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_DONE:
 		rc = smblib_get_prop_batt_charge_done(chg, val);
@@ -1219,6 +1223,10 @@ static int smb2_batt_set_prop(struct power_supply *psy,
 		chg->batt_profile_fcc_ua = val->intval;
 		vote(chg->fcc_votable, BATT_PROFILE_VOTER, true, val->intval);
 		break;
+	case POWER_SUPPLY_PROP_CHARGE_DISABLE:
+		vote(chg->chg_disable_votable, USER_VOTER,
+			(bool)val->intval, 0);
+		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT:
 		if (val->intval)
 			vote(chg->fcc_votable, FG_ESR_VOTER, true, val->intval);
@@ -1270,6 +1278,7 @@ static int smb2_batt_prop_is_writeable(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_SW_JEITA_ENABLED:
 	case POWER_SUPPLY_PROP_TAPER_CONTROL:
 	case POWER_SUPPLY_PROP_DIE_HEALTH:
+	case POWER_SUPPLY_PROP_CHARGE_DISABLE:
 		return 1;
 	default:
 		break;
