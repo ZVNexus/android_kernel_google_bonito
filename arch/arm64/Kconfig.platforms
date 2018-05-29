@@ -353,4 +353,9 @@ config ARCH_ZYNQMP
 	help
 	  This enables support for Xilinx ZynqMP Family
 
+config BOARD_BONITO
+    bool "Google BONITO Family"
+    depends on ARCH_QCOM
+    select ARCH_SDM670
+
 endmenu
