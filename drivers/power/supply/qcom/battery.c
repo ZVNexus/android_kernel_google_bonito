@@ -524,6 +524,12 @@ static void pl_taper_work(struct work_struct *work)
 	int rc;
 	int eff_fcc_ua;
 	int total_fcc_ua, master_fcc_ua, slave_fcc_ua = 0;
+	int tcm = POWER_SUPPLY_TAPER_CONTROL_MODE_STEPPER;
+
+	rc = power_supply_get_property(chip->batt_psy,
+			POWER_SUPPLY_PROP_TAPER_CONTROL, &pval);
+	if (rc == 0)
+		tcm = pval.intval;
 
 	chip->taper_entry_fv = get_effective_result(chip->fv_votable);
 	chip->taper_work_running = true;
@@ -555,42 +561,34 @@ static void pl_taper_work(struct work_struct *work)
 		}
 
 		chip->charge_type = pval.intval;
-		if (pval.intval == POWER_SUPPLY_CHARGE_TYPE_TAPER) {
+		if (pval.intval != POWER_SUPPLY_CHARGE_TYPE_TAPER) {
+			pl_dbg(chip, PR_PARALLEL,
+			       "master is fast charging; waiting for next taper\n");
+		} else if (tcm == POWER_SUPPLY_TAPER_CONTROL_MODE_IMMEDIATE) {
+			pl_dbg(chip, PR_PARALLEL,
+			       "master is taper charging: stop parallel\n");
+			vote(chip->pl_disable_votable, TAPER_END_VOTER,
+				true, 0);
+			goto done;
+		} else {
+
 			eff_fcc_ua = get_effective_result(chip->fcc_votable);
 			if (eff_fcc_ua < 0) {
 				pr_err("Couldn't get fcc, exiting taper work\n");
 				goto done;
 			}
+
 			eff_fcc_ua = eff_fcc_ua - TAPER_REDUCTION_UA;
 			if (eff_fcc_ua < 0) {
 				pr_err("Can't reduce FCC any more\n");
 				goto done;
 			}
 
-			pl_dbg(chip, PR_PARALLEL, "master is taper charging; reducing FCC to %dua\n",
-					eff_fcc_ua);
+			pl_dbg(chip, PR_PARALLEL,
+			       "master is taper charging; reducing FCC to %dua\n",
+				eff_fcc_ua);
 			vote(chip->fcc_votable, TAPER_STEPPER_VOTER,
 					true, eff_fcc_ua);
-		} else {
-			/*
-			 * Due to reduction of float voltage in JEITA condition
-			 * taper charging can be initiated at a lower FV. On
-			 * removal of JEITA condition, FV readjusts itself.
-			 * However, once taper charging is initiated, it doesn't
-			 * exits until parallel chaging is disabled due to which
-			 * FCC doesn't scale back to its original value, leading
-			 * to slow charging thereafter.
-			 * Check if FV increases in comparison to FV at which
-			 * taper charging was initiated, and if yes, exit taper
-			 * charging.
-			 */
-			if (get_effective_result(chip->fv_votable) >
-						chip->taper_entry_fv) {
-				pl_dbg(chip, PR_PARALLEL, "Float voltage increased. Exiting taper\n");
-				goto done;
-			} else {
-				pl_dbg(chip, PR_PARALLEL, "master is fast charging; waiting for next taper\n");
-			}
 		}
 		/* wait for the charger state to deglitch after FCC change */
 		msleep(PL_TAPER_WORK_DELAY_MS);
@@ -1000,7 +998,8 @@ static int pl_disable_vote_callback(struct votable *votable,
 	struct pl_data *chip = data;
 	union power_supply_propval pval = {0, };
 	int master_fcc_ua = 0, total_fcc_ua = 0, slave_fcc_ua = 0;
-	int rc = 0, charge_type, taper_control_enabled = 1;
+	int rc = 0, charge_type;
+	int tcm = POWER_SUPPLY_TAPER_CONTROL_MODE_STEPPER;
 	bool disable = false;
 
 	if (!is_main_available(chip))
@@ -1150,11 +1149,11 @@ static int pl_disable_vote_callback(struct votable *votable,
 		 *  start the taper work if so
 		 */
 		rc = power_supply_get_property(chip->batt_psy,
-				POWER_SUPPLY_PROP_TAPER_CONTROL_ENABLED, &pval);
+				POWER_SUPPLY_PROP_TAPER_CONTROL, &pval);
 		if (rc < 0)
 			pr_err("Couldn't get taper control state rc=%d\n", rc);
 		else
-			taper_control_enabled = pval.intval;
+			tcm = pval.intval;
 
 		rc = power_supply_get_property(chip->batt_psy,
 				       POWER_SUPPLY_PROP_CHARGE_TYPE, &pval);
@@ -1164,7 +1163,7 @@ static int pl_disable_vote_callback(struct votable *votable,
 		} else {
 			if (charge_type == POWER_SUPPLY_CHARGE_TYPE_TAPER
 			    && !chip->taper_work_running
-			    && taper_control_enabled) {
+			    && tcm != POWER_SUPPLY_TAPER_CONTROL_OFF) {
 				pl_dbg(chip, PR_PARALLEL,
 					"pl enabled in Taper scheduing work\n");
 				vote(chip->pl_awake_votable, TAPER_END_VOTER,
@@ -1329,7 +1328,8 @@ static bool is_parallel_available(struct pl_data *chip)
 static void handle_main_charge_type(struct pl_data *chip)
 {
 	union power_supply_propval pval = {0, };
-	int rc, charge_type, taper_control_enabled = 1;
+	int rc, charge_type;
+	int tcm = POWER_SUPPLY_TAPER_CONTROL_MODE_STEPPER;
 
 	rc = power_supply_get_property(chip->batt_psy,
 			       POWER_SUPPLY_PROP_CHARGE_TYPE, &pval);
@@ -1340,12 +1340,12 @@ static void handle_main_charge_type(struct pl_data *chip)
 	charge_type = pval.intval;
 
 	rc = power_supply_get_property(chip->batt_psy,
-			POWER_SUPPLY_PROP_TAPER_CONTROL_ENABLED, &pval);
+			POWER_SUPPLY_PROP_TAPER_CONTROL, &pval);
 	if (rc < 0) {
 		pr_err("Couldn't get taper control state rc=%d\n", rc);
 		return;
 	}
-	taper_control_enabled = pval.intval;
+	tcm = pval.intval;
 
 	/* not fast/not taper state to disables parallel */
 	if ((charge_type != POWER_SUPPLY_CHARGE_TYPE_FAST)
@@ -1355,34 +1355,46 @@ static void handle_main_charge_type(struct pl_data *chip)
 		return;
 	}
 
-	/* handle taper charge entry */
+	/* handle taper charge entry
+	 * taper_work will disable parallel with TAPER_END_VOTER after stepping
+	 * down FCC or immediately.
+	 */
 	if (chip->charge_type == POWER_SUPPLY_CHARGE_TYPE_FAST
 	    && charge_type == POWER_SUPPLY_CHARGE_TYPE_TAPER
-	    && taper_control_enabled) {
+	    && tcm != POWER_SUPPLY_TAPER_CONTROL_OFF) {
 		chip->charge_type = charge_type;
 		if (!chip->taper_work_running) {
-			pl_dbg(chip, PR_PARALLEL, "taper entry scheduling work\n");
+			pl_dbg(chip, PR_PARALLEL, "start taper work (%d)\n",
+				tcm);
 			vote(chip->pl_awake_votable, TAPER_END_VOTER, true, 0);
 			queue_work(system_long_wq, &chip->pl_taper_work);
 		}
 		return;
 	}
 
-	/* handle fast/taper charge entry */
-	if (charge_type == POWER_SUPPLY_CHARGE_TYPE_TAPER
-			|| charge_type == POWER_SUPPLY_CHARGE_TYPE_FAST) {
-		/*
-		 * Undo parallel charging termination if entered taper in
-		 * reduced float voltage condition due to jeita mitigation.
-		 */
-		if (pval.intval == POWER_SUPPLY_CHARGE_TYPE_FAST &&
-			(chip->taper_entry_fv <
-			get_effective_result(chip->fv_votable))) {
-			vote(chip->pl_disable_votable, TAPER_END_VOTER,
-				false, 0);
-		}
-		pl_dbg(chip, PR_PARALLEL, "chg_state enabling parallel\n");
+	/* re-enable parallel when in FAST mode or disable it immediately while
+	 * in TAPER if taper control is enabled.
+	 */
+	if (charge_type == POWER_SUPPLY_CHARGE_TYPE_FAST) {
+		pl_dbg(chip, PR_PARALLEL, "VOTER parallel enabled\n");
 		vote(chip->pl_disable_votable, CHG_STATE_VOTER, false, 0);
+		chip->charge_type = charge_type;
+	} else if (charge_type == POWER_SUPPLY_CHARGE_TYPE_TAPER) {
+		const bool state = (tcm
+			== POWER_SUPPLY_TAPER_CONTROL_MODE_IMMEDIATE);
+
+		pl_dbg(chip, PR_PARALLEL, "VOTER tce=%d dis_parallel stat=%d\n",
+			tcm, state);
+
+		 /* when called with "false" (to enable parallel, DUH!) the
+		  * callback logic will re-enable parallel charging and kick
+		  * off pl_taper_work when the device is in TAPER. Here I take
+		  * a shortcut and disable parallel immediately if in
+		  * POWER_SUPPLY_TAPER_CONTROL_MODE_IMMEDIATE
+		  * NOTE: I might not need the shortcut...
+		  */
+
+		vote(chip->pl_disable_votable, CHG_STATE_VOTER, state, 0);
 		chip->charge_type = charge_type;
 		return;
 	}
