@@ -15,6 +15,8 @@
 
 #include <linux/device.h>
 
+#define PD_ACTIVITY_TIMEOUT_MS 10000
+
 struct usbpd;
 
 #if IS_ENABLED(CONFIG_USB_PD_POLICY) || IS_ENABLED(CONFIG_USB_PD_ENGINE)
