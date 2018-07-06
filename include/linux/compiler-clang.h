@@ -41,6 +41,13 @@
 #define __SANITIZE_ADDRESS__
 #endif
 
+#undef __no_sanitize_address
+#if __has_feature(address_sanitizer)
+#define __no_sanitize_address __attribute__((no_sanitize("kernel-address")))
+#else
+#define __no_sanitize_address
+#endif
+
 /*
  * Not all versions of clang implement the the type-generic versions
  * of the builtin overflow checkers. Fortunately, clang implements
