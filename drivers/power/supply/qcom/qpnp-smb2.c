@@ -377,7 +377,9 @@ static enum power_supply_property smb2_usb_props[] = {
 	POWER_SUPPLY_PROP_PD_VOLTAGE_MIN,
 	POWER_SUPPLY_PROP_SDP_CURRENT_MAX,
 	POWER_SUPPLY_PROP_CONNECTOR_TYPE,
+	POWER_SUPPLY_PROP_OTG_FASTROLESWAP,
 	POWER_SUPPLY_PROP_MOISTURE_DETECTED,
+	POWER_SUPPLY_PROP_PD_IN_EXPLICIT_CONTRACT,
 };
 
 static int smb2_usb_get_prop(struct power_supply *psy,
@@ -536,17 +538,25 @@ static int smb2_usb_set_prop(struct power_supply *psy,
 			vote(chg->disable_power_role_switch, MOISTURE_VOTER,
 			     val->intval > 0, 0);
 			break;
+		case POWER_SUPPLY_PROP_PD_IN_EXPLICIT_CONTRACT:
+			chg->in_explicit_contract = val->intval;
+			power_supply_changed(chg->usb_psy);
+			break;
 		default:
 			rc = -EINVAL;
 			break;
 		}
-
 		goto unlock;
 	}
 
 	switch (psp) {
+	case POWER_SUPPLY_PROP_PD_IN_EXPLICIT_CONTRACT:
+		chg->in_explicit_contract = val->intval;
+		power_supply_changed(chg->usb_psy);
+		break;
 	case POWER_SUPPLY_PROP_PD_CURRENT_MAX:
 		rc = smblib_set_prop_pd_current_max(chg, val);
+		power_supply_changed(chg->usb_psy);
 		break;
 	case POWER_SUPPLY_PROP_TYPEC_POWER_ROLE:
 		rc = smblib_set_prop_typec_power_role(chg, val);
@@ -893,6 +903,9 @@ static int smb2_dc_get_prop(struct power_supply *psy,
 	switch (psp) {
 	case POWER_SUPPLY_PROP_INPUT_SUSPEND:
 		val->intval = get_effective_result(chg->dc_suspend_votable);
+		break;
+	case POWER_SUPPLY_PROP_PD_IN_EXPLICIT_CONTRACT:
+		val->intval = chg->in_explicit_contract;
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
 		rc = smblib_get_prop_dc_present(chg, val);

@@ -360,6 +360,7 @@ struct smb_charger {
 	bool			disable_stat_sw_override;
 	bool			in_chg_lock;
 	bool			fcc_stepper_enable;
+	u8			in_explicit_contract;
 
 	/* workaround flag */
 	u32			wa_flags;
