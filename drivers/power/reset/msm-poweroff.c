@@ -314,7 +314,11 @@ static void msm_restart_prepare(const char *cmd)
 		qpnp_pon_system_pwr_off(PON_POWER_OFF_HARD_RESET);
 
 	if (cmd != NULL) {
-		if (!strncmp(cmd, "bootloader", 10)) {
+		if (!strncmp(cmd, "packout", strlen("packout"))) {
+			qpnp_pon_set_restart_reason(
+				PON_RESTART_REASON_OEM_PACKOUT);
+			__raw_writel(0x77665500, restart_reason);
+		} else if (!strncmp(cmd, "bootloader", 10)) {
 			qpnp_pon_set_restart_reason(
 				PON_RESTART_REASON_BOOTLOADER);
 			__raw_writel(0x77665500, restart_reason);
